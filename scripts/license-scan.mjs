@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * Scan des dépendances : licence, version installée et fraîcheur
- * (dernière version stable publiée sur npm). Génère licence.md.
+ * (dernière version stable publiée sur npm), avec classification
+ * permissive / copyleft. Injecte le rapport dans README.md entre
+ * les balises LICENSE-SCAN:START / LICENSE-SCAN:END.
  *
  * Usage : npm run license:scan
  */
@@ -19,9 +21,17 @@ const directDeps = new Set([
   ...Object.keys(pkg.devDependencies ?? {}),
 ]);
 
-// Licences à surveiller : copyleft fort, copyleft faible, ou licence absente.
 const STRONG_COPYLEFT = /^(GPL-?|AGPL|SSPL|CC-BY-SA|CPAL|OSL|EUPL)/i;
 const WEAK_COPYLEFT = /^(LGPL|MPL|EPL)/i;
+const PERMISSIVE =
+  /^(MIT|ISC|BSD-?\d?-?Clause|Apache|0BSD|Unlicense|CC0|Zlib|Python|PSF|BlueOak|WTFPL|Artistic)/i;
+
+function classify(license) {
+  if (STRONG_COPYLEFT.test(license)) return "Copyleft fort";
+  if (WEAK_COPYLEFT.test(license)) return "Copyleft faible";
+  if (PERMISSIVE.test(license)) return "Permissive";
+  return "À vérifier";
+}
 
 async function installedPackages() {
   const result = new Map();
@@ -46,7 +56,6 @@ async function installedPackages() {
               : (meta.license?.type ??
                 meta.licenses?.map((l) => l.type).join(" OR ") ??
                 "INCONNUE"),
-          path: full,
         });
       }
       const nested = path.join(full, "node_modules");
@@ -85,67 +94,84 @@ for (let i = 0; i < installed.length; i += CONCURRENCY) {
 for (const p of installed) {
   p.direct = directDeps.has(p.name);
   p.outdated = p.latest !== "?" && p.latest !== p.version;
-  p.strongCopyleft = STRONG_COPYLEFT.test(p.license);
-  p.weakCopyleft = WEAK_COPYLEFT.test(p.license);
-  p.copyleft = p.strongCopyleft || p.weakCopyleft || p.license === "INCONNUE";
+  p.kind = classify(p.license);
 }
 
 const date = new Date().toISOString().slice(0, 10);
+const nbDirect = installed.filter((p) => p.direct).length;
+const flagged = installed.filter(
+  (p) => p.outdated || p.kind === "Copyleft fort" || p.kind === "À vérifier",
+);
+const weakCopyleft = installed.filter((p) => p.kind === "Copyleft faible");
+
 const rows = installed
   .map(
     (p) =>
-      `| ${p.name} | ${p.version} | ${p.latest} | ${p.license} | ` +
+      `| ${p.name} | ${p.version} | ${p.latest} | ${p.license} | ${p.kind} | ` +
       `${p.direct ? "directe" : "transitive"} | ${p.outdated ? "⚠️ maj dispo" : "à jour"} |`,
   )
   .join("\n");
 
-const flagged = installed.filter((p) => p.copyleft || p.outdated);
-const analysis = flagged.length
-  ? flagged
-      .map((p) => {
+const analysis = [
+  ...(weakCopyleft.length
+    ? weakCopyleft.map(
+        (p) =>
+          `- **${p.name}** (${p.license}, copyleft faible, ${p.direct ? "directe" : "transitive"}) : ` +
+          `réciprocité limitée au fichier — acceptable : dépendance de développement, ` +
+          `non distribuée ni liée au runtime.`,
+      )
+    : []),
+  ...(flagged.length
+    ? flagged.map((p) => {
         const reasons = [];
-        if (p.license === "INCONNUE")
-          reasons.push("licence non déclarée — à vérifier manuellement avant intégration");
-        else if (p.strongCopyleft)
+        if (p.kind === "Copyleft fort")
           reasons.push(`licence ${p.license} à copyleft fort — impact à évaluer`);
-        else if (p.weakCopyleft)
-          reasons.push(
-            `licence ${p.license} à copyleft faible (réciprocité au niveau du fichier) — acceptable ici : dépendance transitive de développement, non distribuée ni liée au runtime`,
-          );
+        if (p.kind === "À vérifier")
+          reasons.push(`licence ${p.license} non reconnue — vérification manuelle requise`);
         if (p.outdated)
-          reasons.push(`version installée ${p.version} < dernière stable ${p.latest}`);
+          reasons.push(`installée ${p.version} < dernière stable ${p.latest}`);
         return `- **${p.name}** : ${reasons.join(" ; ")}.`;
       })
-      .join("\n")
-  : "- Aucun composant ne pose question.";
+    : ["- Aucun composant ne pose question."]),
+].join("\n");
 
-const md = `# Rapport de licences — ${pkg.name} v${pkg.version}
+const report = `<!-- LICENSE-SCAN:START -->
 
-Généré le ${date} par \`npm run license:scan\` (\`scripts/license-scan.mjs\`).
-${installed.length} packages analysés (${installed.filter((p) => p.direct).length} directs, le reste transitifs).
+Dernière génération : ${date} — \`npm run license:scan\` (\`scripts/license-scan.mjs\`).
+${installed.length} packages analysés (${nbDirect} directs, le reste transitifs).
 
-## Résumé exécutif
+**Aucune dépendance de production (runtime)** : le service n'utilise que l'API
+\`fetch\` native de Node.js. Toutes les dépendances sont de développement.
 
-- **Dépendances de production (runtime) :** aucune — le service n'utilise que l'API \`fetch\` native de Node.js.
-- **Dépendances de développement :** ${[...directDeps].join(", ")}.
-- **Composants à surveiller :** ${flagged.length || "aucun"}.
-
-## Inventaire
-
-| Package | Installée | Dernière stable | Licence | Type | Fraîcheur |
-|---------|-----------|-----------------|---------|------|-----------|
+| Package | Installée | Dernière stable | Licence | Permissivité | Type | Fraîcheur |
+|---------|-----------|-----------------|---------|--------------|------|-----------|
 ${rows}
 
-## Analyse et justifications
+#### Points d'attention
 
 ${analysis}
 
-## Notes
+- « Fraîcheur » = comparaison entre la version installée (\`package-lock.json\`) et
+  la dernière version stable publiée sur le registry npm.
+- Les APIs externes (iTunes Search, MusicBrainz) sont des services, pas des
+  composants intégrés : leurs conditions d'usage sont respectées (User-Agent
+  identifiable pour MusicBrainz, cache côté iTunes pour la limite ~20 req/min).
 
-- Les licences copyleft éventuelles sur des dépendances **de développement** (ex. outillage de test) ne contaminent pas le code livré : elles ne sont ni distribuées ni liées au runtime.
-- « Fraîcheur » = comparaison entre la version installée (\`package-lock.json\`) et la dernière version stable publiée sur le registry npm.
-- Les APIs externes (iTunes Search, MusicBrainz) sont des services, pas des composants intégrés : elles sont accédées via des adaptateurs et leurs conditions d'usage sont respectées (User-Agent identifiable pour MusicBrainz, cache côté iTunes pour la limite ~20 req/min).
-`;
+<!-- LICENSE-SCAN:END -->`;
 
-await writeFile(path.join(root, "licence.md"), md);
-console.log(`licence.md généré : ${installed.length} packages, ${flagged.length} à surveiller.`);
+const readmePath = path.join(root, "README.md");
+const readme = await readFile(readmePath, "utf8");
+const START = "<!-- LICENSE-SCAN:START -->";
+const END = "<!-- LICENSE-SCAN:END -->";
+
+if (readme.includes(START) && readme.includes(END)) {
+  const before = readme.slice(0, readme.indexOf(START));
+  const after = readme.slice(readme.indexOf(END) + END.length);
+  await writeFile(readmePath, before + report + after);
+} else {
+  await writeFile(readmePath, readme.trimEnd() + "\n\n" + report + "\n");
+}
+
+console.log(
+  `README.md mis à jour : ${installed.length} packages, ${flagged.length + weakCopyleft.length} à surveiller.`,
+);
