@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node --experimental-strip-types src/index.ts",
+    "start": "npm run build && node dist/index.js",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc -p tsconfig.test.json",
