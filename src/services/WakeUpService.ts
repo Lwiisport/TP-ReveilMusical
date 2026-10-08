@@ -1,4 +1,5 @@
 import type { DayOfWeek } from "../domain/DayOfWeek.js";
+import { MusicProviderError } from "../domain/errors.js";
 import type { WakeUpReport } from "../domain/WakeUpReport.js";
 import type { Weather } from "../domain/Weather.js";
 import type { MusicProvider } from "../ports/MusicProvider.js";
@@ -28,14 +29,21 @@ export class WakeUpService {
     weather: Weather,
   ): Promise<WakeUpReport> {
     const prefs = await this.preferences.getPreferences(userId);
-    const requestedSong = prefs.songsByWeather[weather] ?? prefs.fallbackSong;
+    // Le choix du morceau dépend de la combinaison jour × météo ;
+    // le morceau de secours couvre les combinaisons non configurées.
+    const requestedSong =
+      prefs.songsByDayAndWeather[day]?.[weather] ?? prefs.fallbackSong;
 
-    // La chaîne résiliente garantit un morceau ; le repli ci-dessous couvre
-    // le cas où l'on injecterait un fournisseur nu sans fallback.
-    const song = (await this.music.findSong(requestedSong)) ?? {
-      title: requestedSong,
-      artist: "Artiste inconnu",
-    };
+    // Un `null` du fournisseur signifie qu'aucun morceau n'a pu être
+    // produit : c'est une panne, pas une absence de résultat — on lève
+    // une exception explicite plutôt que de fabriquer un faux morceau.
+    const song = await this.music.findSong(requestedSong);
+    if (!song) {
+      throw new MusicProviderError(
+        `Le fournisseur « ${this.music.name} » n'a retourné aucun morceau pour « ${requestedSong} »`,
+      );
+    }
+
     const subject = `Réveil musical — ${day}`;
     const body = `Bonjour ! Il est l'heure de se lever. ` +
       `Votre morceau du jour : « ${song.title} » de ${song.artist}.`;

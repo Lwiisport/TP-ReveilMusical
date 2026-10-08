@@ -1,3 +1,4 @@
+import { DayOfWeek } from "../../domain/DayOfWeek.js";
 import { NotificationChannel } from "../../domain/NotificationChannel.js";
 import type { UserPreferences } from "../../domain/UserPreferences.js";
 import { Weather } from "../../domain/Weather.js";
@@ -6,10 +7,17 @@ import type { UserPreferencesService } from "../../ports/UserPreferencesService.
 const DEFAULTS: Record<string, UserPreferences> = {
   "user-1": {
     userId: "user-1",
-    songsByWeather: {
-      [Weather.SOLEIL]: "Here Comes the Sun",
-      [Weather.PLUIE]: "Singin' in the Rain",
-      [Weather.NEIGE]: "Let It Snow",
+    songsByDayAndWeather: {
+      [DayOfWeek.LUNDI]: {
+        [Weather.SOLEIL]: "Here Comes the Sun",
+        [Weather.PLUIE]: "Singin' in the Rain",
+      },
+      [DayOfWeek.MARDI]: {
+        [Weather.PLUIE]: "Rainy Day Women",
+      },
+      [DayOfWeek.SAMEDI]: {
+        [Weather.NEIGE]: "Let It Snow",
+      },
     },
     fallbackSong: "Lovely Day",
     preferredChannel: NotificationChannel.EMAIL,
@@ -17,9 +25,13 @@ const DEFAULTS: Record<string, UserPreferences> = {
   },
   "user-2": {
     userId: "user-2",
-    songsByWeather: {
-      [Weather.SOLEIL]: "Sunny",
-      [Weather.NUAGEUX]: "Both Sides Now",
+    songsByDayAndWeather: {
+      [DayOfWeek.MERCREDI]: {
+        [Weather.SOLEIL]: "Sunny",
+      },
+      [DayOfWeek.JEUDI]: {
+        [Weather.NUAGEUX]: "Both Sides Now",
+      },
     },
     fallbackSong: "Good Morning",
     preferredChannel: NotificationChannel.SMS,
