@@ -64,7 +64,7 @@ npm test                # tests unitaires (vitest)
 npm run test:coverage   # avec couverture
 npm run typecheck       # tsc strict
 npm run start           # démo : simule plusieurs réveils
-npm run license:scan    # régénère licence.md
+npm run license:scan    # régénère la section dépendances
 ```
 
 ## Dépendances — licences et fraîcheur
